@@ -1,0 +1,4 @@
+jsonsimpleconfig
+secureclientserverservice
+boto3
+psycopg2
