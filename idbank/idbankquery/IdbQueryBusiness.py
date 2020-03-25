@@ -30,13 +30,14 @@
 
 import json
 import logging
+
 from psycopg2 import sql
 
-from .IdbQuerySql import IdbQuerySql
+from idbank import AwsDynamoDb
 from .IdbQueryError import IdbQueryError
 from .IdbQueryResponse import IdbQueryResponse
+from .IdbQuerySql import IdbQuerySql
 from .IdbSqlQueryBuilder import IdbSqlQueryBuilder
-from idbank import AwsDynamoDb
 
 
 ################################################################################
@@ -84,9 +85,15 @@ class IdbQueryBusiness:
                 logging.debug("IDB query execute: " + json.dumps(queryData['query']))
 
                 if queryData['query'] == 'createAccount':
-                    returnValue = IdbQuerySql.executeSqlQuery(dbConnection,
+                    returnValueAccount = IdbQuerySql.executeSqlQuery(dbConnection,
                                                               IdbSqlQueryBuilder.generateSqlBusinessCreateAccount(
-                                                                  queryData))
+                                                                  queryData), True)
+                    if "QueryError" not in returnValueAccount:
+                        returnValuePseudonymisation = IdbQuerySql.executeSqlQuery(dbConnection,
+                                                                  IdbSqlQueryBuilder.generateSqlBusinessCreateAccountPseudonymisation(
+                                                                      queryData), True)
+                        returnValueAccount["QueryPseudonymisation"] = returnValuePseudonymisation
+                    returnValue = IdbQueryResponse.responseOkDict(returnValueAccount)
                 elif queryData['query'] == 'dropCreateAccount':
                     if allowDelete or allowMigration:
                         queryData['executeDbDropSQL'] = True
@@ -97,13 +104,27 @@ class IdbQueryBusiness:
                         logging.debug("Disabled for security")
                         returnValue = IdbQueryError.requestUnsupportedService('Disabled for security')
                 elif queryData['query'] == 'updateDataTypes':
-                    returnValue = IdbQuerySql.executeSqlQuery(dbConnection,
+                    returnValueAccount = IdbQuerySql.executeSqlQuery(dbConnection,
                                                               IdbSqlQueryBuilder.generateSqlBusinessUpdateDataTypes(
-                                                                  queryData))
+                                                                  queryData), True)
+                    if "QueryError" not in returnValueAccount:
+                        queryData['dbTableName'] = queryData['dbTableName'] + ".pn"
+                        returnValuePseudonymisation = IdbQuerySql.executeSqlQuery(dbConnection,
+                                                                  IdbSqlQueryBuilder.generateSqlBusinessUpdateDataTypes(
+                                                                      queryData), True)
+                        returnValueAccount["QueryPseudonymisation"] = returnValuePseudonymisation
+                    returnValue = IdbQueryResponse.responseOkDict(returnValueAccount)
                 elif queryData['query'] == 'deleteAccount':
-                    returnValue = IdbQuerySql.executeSqlQuery(dbConnection,
+                    returnValueAccount = IdbQuerySql.executeSqlQuery(dbConnection,
                                                               IdbSqlQueryBuilder.generateSqlBusinessDeleteAccount(
-                                                                  queryData))
+                                                                  queryData), True)
+                    if "QueryError" not in returnValueAccount:
+                        queryData['dbTableName'] = queryData['dbTableName'] + ".pn"
+                        returnValuePseudonymisation = IdbQuerySql.executeSqlQuery(dbConnection,
+                                                                         IdbSqlQueryBuilder.generateSqlBusinessDeleteAccount(
+                                                                             queryData), True)
+                        returnValueAccount["QueryPseudonymisation"] = returnValuePseudonymisation
+                    returnValue = IdbQueryResponse.responseOkDict(returnValueAccount)
                 elif queryData['query'] == 'countAllItems':
                     returnValue = IdbQuerySql.fetchSqlQuery(dbConnection,
                                                             IdbSqlQueryBuilder.generateSqlBusinessCountAllItems(
@@ -133,6 +154,48 @@ class IdbQueryBusiness:
                                                             IdbSqlQueryBuilder.generateSqlBusinessFindItems(
                                                                 queryData))
                 elif queryData['query'] == 'findCountAllItems':
+                    returnValue = IdbQuerySql.fetchSqlQuery(dbConnection,
+                                                            IdbSqlQueryBuilder.generateSqlBusinessCountAllItems(
+                                                                dict(queryData)), False, True)
+                    if returnValue \
+                            and isinstance(returnValue, dict) \
+                            and 'Query' in returnValue \
+                            and returnValue['Query'] == 1 \
+                            and 'QueryData' in returnValue:
+                        countAll = returnValue['QueryData']
+                        returnValue = IdbQuerySql.fetchSqlQuery(dbConnection,
+                                                                IdbSqlQueryBuilder.generateSqlBusinessFindItems(
+                                                                    queryData), False, True)
+                        if returnValue \
+                                and isinstance(returnValue, dict) \
+                                and 'Query' in returnValue \
+                                and 'QueryData' in returnValue:
+                            returnValue['CountAll'] = countAll
+                            returnValue = IdbQueryResponse.responseOkDict(returnValue)
+                        else:
+                            returnValue = IdbQueryError.requestQueryError()
+                    else:
+                        returnValue = IdbQueryError.requestQueryError()
+                ################################################################################
+                # Pseudonymisation                                                             #
+                ################################################################################
+                elif queryData['query'] == 'recreateAccountPseudonymisation':
+                    queryData['executeDbDropSQL'] = True
+                    returnValue = IdbQuerySql.executeSqlQuery(dbConnection,
+                                                              IdbSqlQueryBuilder.generateSqlBusinessCreateAccountPseudonymisation(
+                                                                  queryData))
+                elif queryData['query'] == 'putPseudonymisationItem':
+                    queryData['dbTableName'] = queryData['dbTableName'] + ".pn"
+                    returnValue = IdbQuerySql.fetchSqlQuery(dbConnection,
+                                                            IdbSqlQueryBuilder.generateSqlBusinessPutItem(
+                                                                queryData), True)
+                elif queryData['query'] == 'deletePseudonymisationItem':
+                    queryData['dbTableName'] = queryData['dbTableName'] + ".pn"
+                    returnValue = IdbQuerySql.executeSqlQuery(dbConnection,
+                                                              IdbSqlQueryBuilder.generateSqlBusinessDeleteItem(
+                                                                  queryData))
+                elif queryData['query'] == 'findCountAllPseudonymisationItems':
+                    queryData['dbTableName'] = queryData['dbTableName'] + ".pn"
                     returnValue = IdbQuerySql.fetchSqlQuery(dbConnection,
                                                             IdbSqlQueryBuilder.generateSqlBusinessCountAllItems(
                                                                 dict(queryData)), False, True)

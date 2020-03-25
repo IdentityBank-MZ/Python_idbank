@@ -30,6 +30,7 @@
 
 import json
 import logging
+
 import psycopg2
 from psycopg2 import DatabaseError
 
@@ -83,7 +84,8 @@ class IdbQuerySql:
             logging.debug("Execute query: " + IdbQuerySql.queryToString(query, cursor))
 
     @staticmethod
-    def executeSqlQuery(dbConnection: dict, query: dict) -> str:
+    def executeSqlQuery(dbConnection: dict, query: dict,
+                        returnStatusOnly: bool = False):
         try:
             logging.debug("IDB execute Sql query")
             connection = psycopg2.connect(**dbConnection)
@@ -91,9 +93,15 @@ class IdbQuerySql:
             IdbQuerySql.logging(dbConnection, query, cursor)
             cursor.execute(IdbQuerySql.querySqlToString(query, cursor), query['data'])
             connection.commit()
-            returnValue = IdbQueryResponse.responseOkDict({"Query": cursor.rowcount})
+            if returnStatusOnly:
+                returnValue = {"Query": cursor.rowcount}
+            else:
+                returnValue = IdbQueryResponse.responseOkDict({"Query": cursor.rowcount})
         except (Exception, DatabaseError) as error:
-            returnValue = IdbQueryError.requestQueryError(str(error))
+            if returnStatusOnly:
+                returnValue = {"Query": cursor.rowcount, "QueryError": str(error)}
+            else:
+                returnValue = IdbQueryError.requestQueryError(str(error))
             logging.error('Query error')
             logging.error(str(error))
         finally:
@@ -103,7 +111,8 @@ class IdbQuerySql:
         return returnValue
 
     @staticmethod
-    def fetchSqlQuery(dbConnection: dict, query: dict, commit: bool = False, returnDataOnly: bool = False) -> str:
+    def fetchSqlQuery(dbConnection: dict, query: dict, commit: bool = False,
+                      returnDataOnly: bool = False):
         try:
             logging.debug("IDB fetch Sql query")
             connection = psycopg2.connect(**dbConnection)
