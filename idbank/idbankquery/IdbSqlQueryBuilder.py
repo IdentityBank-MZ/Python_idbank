@@ -28,9 +28,10 @@
 # Import(s)                                                                    #
 ################################################################################
 
-import re
-import logging
 import collections
+import logging
+import re
+
 from psycopg2 import sql
 
 
@@ -182,6 +183,36 @@ class IdbSqlQueryBuilder:
         queryData['dbTableColumns'] = sql.SQL(', ').join(queryData['dbTableColumns'])
 
         return IdbSqlQueryBuilder.generateSqlBusinessDropCreateIdbank(queryData)
+
+    @staticmethod
+    def generateSqlBusinessCreateAccountPseudonymisation(queryData: dict) -> str:
+        queryData['businessDbId'] = queryData['account']
+        queryData['dbTableName'] = queryData['dbTableName'].format(**queryData)
+        queryData['dbTableNameIdentifier'] = sql.Identifier(queryData['dbTableName'])
+        queryData['dbTableNamePseudonymisationIdentifier'] = sql.Identifier(queryData['dbTableName'] + ".pn")
+        queryData['dbTableNamePseudonymisationIdentifierSeq'] = sql.Identifier(queryData['dbTableName'] + ".pn_id_seq")
+
+        if 'executeDbDropSQL' in queryData and queryData['executeDbDropSQL']:
+            queryData['preSQL'] = sql.SQL(("""DROP TABLE IF EXISTS {{dbTableSchemaIdentifier}}.{{dbTableNamePseudonymisationIdentifier}};"""
+                                              ).format(**queryData)).format(**queryData)
+
+        queryData['codeSQL'] = sql.SQL(
+            """CREATE TABLE {dbTableSchemaIdentifier}.{dbTableNamePseudonymisationIdentifier} (LIKE {dbTableSchemaIdentifier}.{dbTableNameIdentifier} INCLUDING ALL);""").format(
+            **queryData)
+
+        queryData['codeSQL'] = sql.SQL(
+            """CREATE TABLE {dbTableSchemaIdentifier}.{dbTableNamePseudonymisationIdentifier} (LIKE {dbTableSchemaIdentifier}.{dbTableNameIdentifier});""").format(
+            **queryData)
+
+        queryData['postSQL'] = sql.SQL(
+            ("""ALTER TABLE {{dbTableSchemaIdentifier}}.{{dbTableNamePseudonymisationIdentifier}} ADD PRIMARY KEY (id);
+            DROP SEQUENCE IF EXISTS {{dbTableSchemaIdentifier}}.{{dbTableNamePseudonymisationIdentifierSeq}};
+            CREATE SEQUENCE {{dbTableSchemaIdentifier}}.{{dbTableNamePseudonymisationIdentifierSeq}} MINVALUE 1;
+            ALTER TABLE {{dbTableSchemaIdentifier}}.{{dbTableNamePseudonymisationIdentifier}} ALTER id SET DEFAULT nextval('{{dbTableSchemaIdentifier}}.{{dbTableNamePseudonymisationIdentifierSeq}}');
+            """
+             ).format(**queryData)).format(**queryData)
+
+        return IdbSqlQueryBuilder.generateSqlGenericSql(queryData)
 
     @staticmethod
     def generateSqlBusinessUpdateDataTypes(queryData: dict) -> str:
@@ -718,7 +749,7 @@ class IdbSqlQueryBuilder:
         return IdbSqlQueryBuilder.generateSqlGenericCreateSql(queryData)
 
     @staticmethod
-    def generateSqlGenericCreateSql(queryData: dict) -> str:
+    def generateSqlGenericCreateSql(queryData: dict) -> dict:
 
         if not ('preSQL' in queryData and queryData['preSQL']):
             queryData['preSQL'] = sql.SQL("")
@@ -729,6 +760,24 @@ class IdbSqlQueryBuilder:
             """{preSQL}
                CREATE TABLE {dbTableSchemaIdentifier}.{dbTableNameIdentifier} ({dbTableColumns});
                ALTER TABLE {dbTableSchemaIdentifier}.{dbTableNameIdentifier} OWNER TO idb_data;
+               {postSQL}
+               """).format(**queryData)
+
+        return {'sql': querySql, 'data': queryData}
+
+    @staticmethod
+    def generateSqlGenericSql(queryData: dict) -> dict:
+
+        if not ('preSQL' in queryData and queryData['preSQL']):
+            queryData['preSQL'] = sql.SQL("")
+        if not ('codeSQL' in queryData and queryData['codeSQL']):
+            queryData['codeSQL'] = sql.SQL("")
+        if not ('postSQL' in queryData and queryData['postSQL']):
+            queryData['postSQL'] = sql.SQL("")
+
+        querySql = sql.SQL(
+            """{preSQL}
+               {codeSQL}
                {postSQL}
                """).format(**queryData)
 
